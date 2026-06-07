@@ -6,13 +6,15 @@ import time
 import datetime
 import hashlib
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
-
+import requests
 # Initialize Flask app
 # Configure templates and static folders to match user requested layout (main.py and index.html in the same directory)
 app = Flask(__name__, template_folder='.', static_folder='static', static_url_path='/static')
 app.secret_key = 'git-sync-dashboard-secret-key-12345'
 DB_PATH = 'database.db'
-
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+MODEL = "llama-3.1-8b-instant"
+flint_memory = []
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -123,8 +125,7 @@ def init_db():
                 "assigned_to": "Backend Developer"
             }
         }
-        
-        # Serialise snapshot
+# Serialise snapshot
         snapshot_str = json.dumps(initial_tasks)
         init_hash = hashlib.sha1(f"initial-commit-{datetime.datetime.now().isoformat()}".encode()).hexdigest()
         
@@ -142,8 +143,47 @@ def init_db():
             cursor.execute('''
                 INSERT INTO git_tasks (branch_name, task_key, title, description, status, assigned_to, updated_at)
                 VALUES ('main', ?, ?, ?, ?, ?, ?)
-            ''', (task_key, task['title'], task['description'], task['status'], task['assigned_to'], epoch_now))
-            
+            ''', (
+                task_key,
+                task['title'],
+                task['description'],
+                task['status'],
+                task['assigned_to'],
+                epoch_now
+            ))
+
+    # Create FLINT AI account if it doesn't exist
+    cursor.execute(
+        "SELECT id FROM users WHERE username = ?",
+        ("FLINT",)
+    )
+
+    if not cursor.fetchone():
+        cursor.execute("""
+            INSERT INTO users (
+                username,
+                email,
+                password_hash,
+                country,
+                timezone,
+                avatar,
+                is_confirmed,
+                confirmation_token,
+                last_seen
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            "FLINT",
+            "flint@gitsync.local",
+            "flint-ai",
+            "USA",
+            "UTC",
+            "/static/avatars/flint.png",
+            1,
+            None,
+            int(time.time())
+        ))
+
     conn.commit()
     conn.close()
 
@@ -285,9 +325,9 @@ def register():
     # Enforce team size limit of 5 members as requested
     cursor.execute("SELECT COUNT(id) FROM users")
     user_count = cursor.fetchone()[0]
-    if user_count >= 5:
+    if user_count >= 6:
         conn.close()
-        return jsonify({"error": "Team is full! Maximum of 5 members allowed."}), 400
+        return jsonify({"error": "Team is full! Maximum of 6 members allowed."}), 400
         
     from werkzeug.security import generate_password_hash
     pwd_hash = generate_password_hash(password)
@@ -658,26 +698,60 @@ def chat_get():
     messages = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return jsonify({"messages": messages})
-
 @app.route('/api/chat', methods=['POST'])
 def chat_post():
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
-        
+
     data = request.json
     message = data.get('message')
+
     if not message or not message.strip():
         return jsonify({"error": "Message required"}), 400
-        
+
+    message = message.strip()
+
     conn = get_db()
     cursor = conn.cursor()
+
+    # Save user's message
     cursor.execute('''
         INSERT INTO chat_messages (user_id, message, created_at)
         VALUES (?, ?, ?)
-    ''', (session['user_id'], message.strip(), int(time.time())))
+    ''', (
+        session['user_id'],
+        message,
+        int(time.time())
+    ))
+
+    # FLINT mention handler
+    if message.lower().startswith("@flint"):
+        prompt = message[6:].strip()
+
+        if prompt:
+            flint_reply = ask_flint(prompt)
+
+            cursor.execute(
+                "SELECT id FROM users WHERE username = ?",
+                ("FLINT",)
+            )
+
+            flint_user = cursor.fetchone()
+
+            if flint_user:
+                cursor.execute('''
+                    INSERT INTO chat_messages
+                    (user_id, message, created_at)
+                    VALUES (?, ?, ?)
+                ''', (
+                    flint_user["id"],
+                    flint_reply,
+                    int(time.time())
+                ))
+
     conn.commit()
     conn.close()
-    
+
     return jsonify({"success": True})
 
 # --- Git / Kanban Endpoints ---
@@ -807,7 +881,95 @@ def git_create_task():
     conn.close()
     
     return jsonify({"success": True, "task_key": task_key})
+def ask_flint(prompt):
+    global flint_memory
 
+    try:
+        messages = [
+            {
+                "role": "system",
+                "content": """
+You are FLINT.
+
+You are a member of the VORCINEX_STUDIO team.
+
+Traits:
+- Friendly
+- Helpful
+- Technically strong
+- Concise
+- Honest when unsure
+
+You help with:
+- Python
+- Flask
+- SQLite
+- Git
+- Web Development
+- Debugging
+- Planning features
+
+YOCRRZ created you.
+
+you are a active member of the team chat.
+Respond naturally as a teammate.
+Do not introduce yourself every message.
+"""
+            }
+        ]
+
+        # Add memory
+        messages.extend(flint_memory)
+
+        # Current message
+        messages.append({
+            "role": "user",
+            "content": prompt
+        })
+
+        r = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": MODEL,
+                "messages": messages,
+                "temperature": 0.7
+            },
+            timeout=30
+        )
+
+        if r.status_code != 200:
+            return f"⚠️ Groq error {r.status_code}"
+
+        data = r.json()
+
+        answer = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "I couldn't generate a response.")
+        )
+
+        # Store memory
+        flint_memory.append({
+            "role": "user",
+            "content": prompt
+        })
+
+        flint_memory.append({
+            "role": "assistant",
+            "content": answer
+        })
+
+        # Keep last 7 exchanges
+        flint_memory = flint_memory[-14:]
+
+        return answer
+
+    except Exception as e:
+        return f"FLINT error: {e}"
 @app.route('/api/git/tasks/<task_key>', methods=['PUT'])
 def git_update_task(task_key):
     if 'user_id' not in session:

@@ -1697,7 +1697,7 @@
                 <div class="glass-panel stat-card">
                     <div class="stat-content">
                         <h3>Bros</h3>
-                        <h2 id="stat-members-count">0 / 5</h2>
+                        <h2 id="stat-members-count">0 / 6</h2>
                     </div>
                     <div class="stat-icon"><i class="fa-solid fa-users"></i></div>
                 </div>
@@ -2410,7 +2410,7 @@
             });
 
             // Max team count constraint (5 members)
-            const emptySlotsCount = 5 - registeredUsers.length;
+            const emptySlotsCount = 6 - registeredUsers.length;
             for (let i = 0; i < emptySlotsCount; i++) {
                 const emptyCard = document.createElement('div');
                 emptyCard.className = 'team-member-card empty-member-card';
@@ -2421,7 +2421,7 @@
                 container.appendChild(emptyCard);
             }
             
-            document.getElementById('stat-members-count').innerText = `${registeredUsers.length} / 5`;
+            document.getElementById('stat-members-count').innerText = `${registeredUsers.length} / 6`;
             updateLocalClocks();
         }
 
