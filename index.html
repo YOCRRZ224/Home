@@ -80,6 +80,67 @@
             border-radius: 16px;
             box-shadow: 0 8px 32px 0 rgba(124, 82, 75, 0.08);
         }
+        /* --- Custom Dropdown Menus --- */
+        .custom-select-wrapper {
+            position: relative;
+            width: 100%;
+        }
+        .custom-select-display {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+        .custom-select-display i {
+            color: var(--text-secondary);
+            font-size: 12px;
+            transition: transform var(--transition-speed);
+        }
+        .custom-select-wrapper.open .custom-select-display i {
+            transform: rotate(180deg);
+        }
+        .custom-select-options {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            margin-top: 6px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(210, 141, 130, 0.3);
+            border-radius: 10px;
+            box-shadow: 0 8px 32px 0 rgba(124, 82, 75, 0.15);
+            max-height: 220px;
+            overflow-y: auto;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .custom-select-wrapper.open .custom-select-options {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+        .custom-option {
+            padding: 10px 16px;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: background 0.2s;
+            color: var(--text-primary);
+        }
+        .custom-option:hover {
+            background: rgba(210, 141, 130, 0.15);
+            color: var(--accent-coral);
+        }
+        .custom-option span {
+            font-size: 16px;
+        }
 
         /* --- Custom Buttons --- */
         .btn {
@@ -1523,23 +1584,19 @@
                     <label for="reg-password">Password</label>
                     <input type="password" id="reg-password" class="input-field" required placeholder="Choose a password">
                 </div>
-                <div class="input-group">
-                    <label for="reg-country">Country</label>
-                    <select id="reg-country" class="input-field" required>
-                        <option value="" disabled selected>Select country</option>
-                        <option value="USA">USA</option>
-                        <option value="India">India</option>
-                        <option value="United Kingdom">United Kingdom</option>
-                        <option value="Japan">Japan</option>
-                        <option value="France">France</option>
-                        <option value="Germany">Germany</option>
-                        <option value="Canada">Canada</option>
-                        <option value="Australia">Australia</option>
-                        <option value="Brazil">Brazil</option>
-                        <option value="Singapore">Singapore</option>
-                    </select>
+                                <div class="input-group">
+                    <label>Country</label>
+                    <div class="custom-select-wrapper" id="wrapper-reg-country">
+                        <div class="custom-select-display input-field" onclick="toggleDropdown('reg-country')">
+                            <span id="display-reg-country">Select country</span>
+                            <i class="fa-solid fa-chevron-down"></i>
+                        </div>
+                        <div class="custom-select-options" id="options-reg-country">
+                            </div>
+                        <input type="hidden" id="reg-country" required>
+                    </div>
                 </div>
-                
+
                 <div class="input-group">
                     <label>Choose Avatar Profile</label>
                     <div class="avatar-selection-grid">
@@ -1603,7 +1660,7 @@
                 </div>
                 <div class="profile-names">
                     <h4 id="my-username">Developer</h4>
-                    <p id="my-country">🌎 USA</p>
+                    <p id="my-country">🌎</p>
                 </div>
             </div>
             <button class="logout-btn" onclick="handleLogout()" title="Log out">
@@ -1882,21 +1939,19 @@
                             <input type="text" id="settings-nickname" class="input-field" placeholder="Change nickname">
                         </div>
                         
-                        <div class="input-group">
-                            <label for="settings-country">Country</label>
-                            <select id="settings-country" class="input-field">
-                                <option value="USA">USA</option>
-                                <option value="India">India</option>
-                                <option value="United Kingdom">United Kingdom</option>
-                                <option value="Japan">Japan</option>
-                                <option value="France">France</option>
-                                <option value="Germany">Germany</option>
-                                <option value="Canada">Canada</option>
-                                <option value="Australia">Australia</option>
-                                <option value="Brazil">Brazil</option>
-                                <option value="Singapore">Singapore</option>
-                            </select>
+                                              <div class="input-group">
+                            <label>Country</label>
+                            <div class="custom-select-wrapper" id="wrapper-settings-country">
+                                <div class="custom-select-display input-field" onclick="toggleDropdown('settings-country')">
+                                    <span id="display-settings-country">Select country</span>
+                                    <i class="fa-solid fa-chevron-down"></i>
+                                </div>
+                                <div class="custom-select-options" id="options-settings-country">
+                                    </div>
+                                <input type="hidden" id="settings-country">
+                            </div>
                         </div>
+
                         
                         <div class="input-group">
                             <label for="settings-password">New Password</label>
@@ -2032,6 +2087,7 @@
 
         // App Bootstrapping
         window.addEventListener('DOMContentLoaded', () => {
+            initCustomDropdowns();
             checkLoginStatus();
             
             // Set periodic polling
@@ -2229,6 +2285,57 @@
                 }
             });
         }
+            // Expanded Global Flag Map
+        const globalFlagMap = {
+            "USA": "🇺🇸", "India": "🇮🇳", "United Kingdom": "🇬🇧", "Japan": "🇯🇵",
+            "France": "🇫🇷", "Germany": "🇩🇪", "Canada": "🇨🇦", "Australia": "🇦🇺",
+            "Brazil": "🇧🇷", "Singapore": "🇸🇬", "Uzbekistan": "🇺🇿", "Philippines": "🇵🇭",
+            "Vietnam": "🇻🇳", "Thailand": "🇹🇭", "Indonesia": "🇮🇩", "Malaysia": "🇲🇾",
+            "Egypt": "🇪🇬", "Nigeria": "🇳🇬", "Kenya": "🇰🇪"
+        };
+
+        // Custom Dropdown Builder
+        function initCustomDropdowns() {
+            const dropdownIds = ['reg-country', 'settings-country'];
+            
+            dropdownIds.forEach(id => {
+                const optionsContainer = document.getElementById(`options-${id}`);
+                const displaySpan = document.getElementById(`display-${id}`);
+                const hiddenInput = document.getElementById(id);
+                
+                if (!optionsContainer) return;
+                optionsContainer.innerHTML = ''; 
+                
+                Object.entries(globalFlagMap).forEach(([country, flag]) => {
+                    const opt = document.createElement('div');
+                    opt.className = 'custom-option';
+                    opt.innerHTML = `<span>${flag}</span> ${country}`;
+                    
+                    opt.onclick = (e) => {
+                        e.stopPropagation();
+                        hiddenInput.value = country;
+                        displaySpan.innerHTML = `<span>${flag}</span> ${country}`;
+                        document.getElementById(`wrapper-${id}`).classList.remove('open');
+                    };
+                    optionsContainer.appendChild(opt);
+                });
+            });
+        }
+
+        // Toggle visibility
+        function toggleDropdown(id) {
+            const wrapper = document.getElementById(`wrapper-${id}`);
+            const isOpen = wrapper.classList.contains('open');
+            document.querySelectorAll('.custom-select-wrapper').forEach(w => w.classList.remove('open'));
+            if (!isOpen) wrapper.classList.add('open');
+        }
+
+        // Close dropdowns if clicked outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.custom-select-wrapper')) {
+                document.querySelectorAll('.custom-select-wrapper').forEach(w => w.classList.remove('open'));
+            }
+        });
 
         // Login identity check
         function checkLoginStatus() {
@@ -2250,16 +2357,6 @@
                 .catch(err => console.error("Identity query failed", err));
         }
 
-        function updateProfileSummary() {
-            if (!currentUser) return;
-            document.getElementById('my-avatar').src = currentUser.avatar;
-            document.getElementById('my-username').innerText = currentUser.username;
-            document.getElementById('mobile-my-avatar').src = currentUser.avatar;
-            
-            const flagMap = { "USA": "🇺🇸", "India": "🇮🇳", "United Kingdom": "🇬🇧", "Japan": "🇯🇵", "France": "🇫🇷", "Germany": "🇩🇪", "Canada": "🇨🇦", "Australia": "🇦🇺", "Brazil": "🇧🇷", "Singapore": "🇸🇬" };
-            const flag = flagMap[currentUser.country] || "🌎";
-            document.getElementById('my-country').innerText = `${flag} ${currentUser.country}`;
-        }
 
         // Heartbeats & status poll updates
         function pollAppStatus() {
@@ -2288,14 +2385,13 @@
             loadDashboardStats(true);
         }
 
-        function renderTeamMembers() {
+                function renderTeamMembers() {
             const container = document.getElementById('team-members-bar');
             container.innerHTML = '';
             
-            const flagMap = { "USA": "🇺🇸", "India": "🇮🇳", "United Kingdom": "🇬🇧", "Japan": "🇯🇵", "France": "🇫🇷", "Germany": "🇩🇪", "Canada": "🇨🇦", "Australia": "🇦🇺", "Brazil": "🇧🇷", "Singapore": "🇸🇬" };
-            
             registeredUsers.forEach(user => {
-                const flag = flagMap[user.country] || "🌎";
+                // Now using the expanded global map
+                const flag = globalFlagMap[user.country] || "🌎";
                 const isOnlineClass = user.is_online ? 'online' : '';
                 const card = document.createElement('div');
                 card.className = 'team-member-card';
@@ -2312,7 +2408,7 @@
                 `;
                 container.appendChild(card);
             });
-            
+
             // Max team count constraint (5 members)
             const emptySlotsCount = 5 - registeredUsers.length;
             for (let i = 0; i < emptySlotsCount; i++) {
@@ -2328,6 +2424,7 @@
             document.getElementById('stat-members-count').innerText = `${registeredUsers.length} / 5`;
             updateLocalClocks();
         }
+
 
         // Login submit actions
         function handleLogin(event) {
@@ -2350,6 +2447,16 @@
                 }
             })
             .catch(err => showToast('Connection failed', 'error'));
+        }
+                function updateProfileSummary() {
+            if (!currentUser) return;
+            document.getElementById('my-avatar').src = currentUser.avatar;
+            document.getElementById('my-username').innerText = currentUser.username;
+            document.getElementById('mobile-my-avatar').src = currentUser.avatar;
+            
+            // Now using the expanded global map
+            const flag = globalFlagMap[currentUser.country] || "🌎";
+            document.getElementById('my-country').innerText = `${flag} ${currentUser.country}`;
         }
 
         // Register submit actions
@@ -3106,12 +3213,17 @@
             });
         }
 
-        // --- SETTINGS CONTROLLERS ---
+                // --- SETTINGS CONTROLLERS ---
         function loadSettingsData() {
             document.getElementById('settings-nickname').value = currentUser.username;
-            document.getElementById('settings-country').value = currentUser.country;
-            document.getElementById('settings-avatar-preview').src = currentUser.avatar;
             document.getElementById('settings-password').value = '';
+            
+            // Manually populate the custom dropdown UI
+            document.getElementById('settings-country').value = currentUser.country;
+            const userFlag = globalFlagMap[currentUser.country] || "🌎";
+            document.getElementById('display-settings-country').innerHTML = `<span>${userFlag}</span> ${currentUser.country}`;
+            
+            document.getElementById('settings-avatar-preview').src = currentUser.avatar;
             
             selectedSettingsAvatar = currentUser.avatar;
             customSettingsAvatarBase64 = null;
@@ -3133,6 +3245,8 @@
                     document.getElementById('smtp-password').placeholder = data.password_configured ? 'SMTP Configured (Type new value to change)' : 'Not configured yet';
                 });
         }
+
+
 
         function handleSaveProfile(event) {
             event.preventDefault();

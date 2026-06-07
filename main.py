@@ -161,8 +161,19 @@ COUNTRY_TIMEZONES = {
     "Canada": "America/Toronto",
     "Australia": "Australia/Sydney",
     "Brazil": "America/Sao_Paulo",
-    "Singapore": "Asia/Singapore"
+    "Singapore": "Asia/Singapore",
+    "Uzbekistan": "Asia/Tashkent",
+    "Philippines": "Asia/Manila",
+    "Vietnam": "Asia/Ho_Chi_Minh",
+    "Thailand": "Asia/Bangkok",
+    "Indonesia": "Asia/Jakarta",
+    "Malaysia": "Asia/Kuala_Lumpur",
+    "Egypt": "Africa/Cairo",
+    "Nigeria": "Africa/Lagos",
+    "Kenya": "Africa/Nairobi"
 }
+
+
 
 # --- Helper functions for Git Engine ---
 def find_common_ancestor(db, branch_a, branch_b):
