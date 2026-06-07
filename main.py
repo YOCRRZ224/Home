@@ -7,10 +7,9 @@ import datetime
 import hashlib
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import requests
-# Initialize Flask app
-# Configure templates and static folders to match user requested layout (main.py and index.html in the same directory)
+
 app = Flask(__name__, template_folder='.', static_folder='static', static_url_path='/static')
-app.secret_key = 'git-sync-dashboard-secret-key-12345'
+app.secret_key = 'why-r-u-watching-my-secret'
 DB_PATH = 'database.db'
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 MODEL = "llama-3.1-8b-instant"
@@ -24,7 +23,6 @@ def init_db():
     conn = get_db()
     cursor = conn.cursor()
     
-    # Create tables
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,16 +93,16 @@ def init_db():
         )
     ''')
     
-    # Check if main branch exists
+    
     cursor.execute("SELECT id FROM git_branches WHERE name = 'main'")
     if not cursor.fetchone():
-        # Insert main branch
+        
         cursor.execute("INSERT INTO git_branches (name, current_commit_hash) VALUES ('main', NULL)")
         
-        # Insert standard SMTP config
+        
         cursor.execute("INSERT INTO smtp_config (server, port, sender_email, password) VALUES ('smtp.gmail.com', 587, '', '')")
         
-        # Create an initial commit with default tasks
+        
         initial_tasks = {
             "task-1": {
                 "title": "Setup Repository & GitSync Environment",
@@ -125,11 +123,11 @@ def init_db():
                 "assigned_to": "Backend Developer"
             }
         }
-# Serialise snapshot
+
         snapshot_str = json.dumps(initial_tasks)
         init_hash = hashlib.sha1(f"initial-commit-{datetime.datetime.now().isoformat()}".encode()).hexdigest()
         
-        # Insert initial commit
+        
         epoch_now = int(time.time())
         cursor.execute('''
             INSERT INTO git_commits (hash, branch_name, parent_hash, message, author, tasks_snapshot, committed_at)
@@ -138,7 +136,6 @@ def init_db():
         
         cursor.execute("UPDATE git_branches SET current_commit_hash = ? WHERE name = 'main'", (init_hash,))
         
-        # Populate working tree for main
         for task_key, task in initial_tasks.items():
             cursor.execute('''
                 INSERT INTO git_tasks (branch_name, task_key, title, description, status, assigned_to, updated_at)
@@ -152,7 +149,6 @@ def init_db():
                 epoch_now
             ))
 
-    # Create FLINT AI account if it doesn't exist
     cursor.execute(
         "SELECT id FROM users WHERE username = ?",
         ("FLINT",)
@@ -187,10 +183,10 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Initialize DB on import/start
+
 init_db()
 
-# Timezone mapping for countries
+
 COUNTRY_TIMEZONES = {
     "USA": "America/New_York",
     "India": "Asia/Kolkata",
@@ -215,16 +211,16 @@ COUNTRY_TIMEZONES = {
 
 
 
-# --- Helper functions for Git Engine ---
+
 def find_common_ancestor(db, branch_a, branch_b):
     cursor = db.cursor()
     
-    # Get latest commit hash of branch A
+    
     cursor.execute("SELECT current_commit_hash FROM git_branches WHERE name = ?", (branch_a,))
     row_a = cursor.fetchone()
     commit_a = row_a[0] if row_a else None
     
-    # Get latest commit hash of branch B
+    
     cursor.execute("SELECT current_commit_hash FROM git_branches WHERE name = ?", (branch_b,))
     row_b = cursor.fetchone()
     commit_b = row_b[0] if row_b else None
@@ -242,7 +238,7 @@ def find_common_ancestor(db, branch_a, branch_b):
                 continue
             visited.add(curr)
             ancestors.append(curr)
-            # Find parent(s)
+            
             cursor.execute("SELECT parent_hash, parent2_hash FROM git_commits WHERE hash = ?", (curr,))
             row = cursor.fetchone()
             if row:
@@ -322,7 +318,7 @@ def register():
     conn = get_db()
     cursor = conn.cursor()
     
-    # Enforce team size limit of 5 members as requested
+    
     cursor.execute("SELECT COUNT(id) FROM users")
     user_count = cursor.fetchone()[0]
     if user_count >= 6:
@@ -345,7 +341,7 @@ def register():
         conn.close()
         return jsonify({"error": "Nickname or Email already registered"}), 400
         
-    # Fetch SMTP configuration
+    
     cursor.execute("SELECT server, port, sender_email, password FROM smtp_config LIMIT 1")
     smtp_row = cursor.fetchone()
     conn.close()
@@ -379,7 +375,7 @@ GitSync Team
 """
             msg.attach(MIMEText(body, 'plain'))
             
-            # Connect to SMTP server and send email
+            
             server = smtplib.SMTP(smtp_row['server'], int(smtp_row['port']), timeout=10)
             server.starttls()
             server.login(smtp_row['sender_email'], smtp_row['password'])
@@ -391,7 +387,7 @@ GitSync Team
             smtp_error = str(ex)
             print(f"[SMTP ERROR] Failed to send email to {email}: {ex}")
             
-    # Dev fallback verification print in console
+    
     print(f"\n========================================================")
     print(f"[DEVELOPMENT FALLBACK] Account verification for {username}")
     print(f"Confirmation Link: {confirm_url}")
@@ -401,7 +397,7 @@ GitSync Team
         "success": True,
         "email_sent": email_sent,
         "smtp_error": smtp_error,
-        "confirm_url": confirm_url, # Pass to front-end to allow instant confirmation in dev mode if email fails
+        "confirm_url": confirm_url, 
         "message": "Registration successful! " + 
                    ("A verification email has been sent." if email_sent else "Verification email failed to send, but you can confirm using the developer link below.")
     })
@@ -419,7 +415,7 @@ def confirm_email(token):
         conn.commit()
         conn.close()
         
-        # Beautiful visual confirmation message
+        
         return f"""
         <html>
             <head>
@@ -606,7 +602,6 @@ def login():
     session['user_id'] = row['id']
     session['current_branch'] = 'main'
     
-    # Update last seen to now
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET last_seen = ? WHERE id = ?", (int(time.time()), row['id']))
@@ -659,7 +654,7 @@ def get_users():
     users = [dict(row) for row in cursor.fetchall()]
     conn.close()
     
-    # Calculate online status: active in the last 15 seconds
+   
     now = int(time.time())
     for u in users:
         u['is_online'] = (now - u['last_seen']) < 15
@@ -778,13 +773,13 @@ def git_create_branch():
     if not name:
         return jsonify({"error": "Branch name is required"}), 400
         
-    # Clean branch name
+
     name = name.strip().replace(' ', '-').replace('/', '-')
     
     conn = get_db()
     cursor = conn.cursor()
     
-    # Check if branch exists
+    
     cursor.execute("SELECT id FROM git_branches WHERE name = ?", (name,))
     if cursor.fetchone():
         conn.close()
@@ -794,10 +789,9 @@ def git_create_branch():
     cursor.execute("SELECT current_commit_hash FROM git_branches WHERE name = ?", (current_branch,))
     current_commit = cursor.fetchone()[0]
     
-    # Insert new branch pointing to the same commit
     cursor.execute("INSERT INTO git_branches (name, current_commit_hash) VALUES (?, ?)", (name, current_commit))
     
-    # Copy tasks into the branch working tree
+    
     epoch_now = int(time.time())
     cursor.execute('''
         INSERT INTO git_tasks (branch_name, task_key, title, description, status, assigned_to, updated_at)
@@ -809,7 +803,7 @@ def git_create_branch():
     conn.commit()
     conn.close()
     
-    # Auto switch branch for user
+   
     session['current_branch'] = name
     
     return jsonify({"success": True, "branch": name})
@@ -1581,6 +1575,6 @@ def test_smtp():
     except Exception as ex:
         return jsonify({"error": str(ex)}), 400
 
-# Start server
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=6969, debug=True)
