@@ -210,7 +210,37 @@ COUNTRY_TIMEZONES = {
 }
 
 
+def flint_system_message(text):
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
 
+        cursor.execute(
+            "SELECT id FROM users WHERE username=?",
+            ("FLINT",)
+        )
+
+        flint = cursor.fetchone()
+
+        if not flint:
+            conn.close()
+            return
+
+        cursor.execute("""
+            INSERT INTO chat_messages
+            (user_id, message, created_at)
+            VALUES (?, ?, ?)
+        """, (
+            flint["id"],
+            text,
+            int(time.time())
+        ))
+
+        conn.commit()
+        conn.close()
+
+    except Exception as e:
+        print("FLINT system message error:", e)
 
 def find_common_ancestor(db, branch_a, branch_b):
     cursor = db.cursor()
@@ -392,7 +422,9 @@ GitSync Team
     print(f"[DEVELOPMENT FALLBACK] Account verification for {username}")
     print(f"Confirmation Link: {confirm_url}")
     print(f"========================================================\n")
-    
+    flint_system_message(
+    f"🌿 Welcome {username}, welcome to the team"
+    )
     return jsonify({
         "success": True,
         "email_sent": email_sent,
@@ -802,7 +834,9 @@ def git_create_branch():
     
     conn.commit()
     conn.close()
-    
+    flint_system_message(
+    f"🌿 Branch '{name}' was created from '{current_branch}'."
+    )
    
     session['current_branch'] = name
     
@@ -829,6 +863,9 @@ def git_checkout():
         return jsonify({"error": "Branch does not exist"}), 404
         
     session['current_branch'] = branch_name
+    flint_system_message(
+    f"🔀 Switched active branch to '{branch_name}'."
+    )
     return jsonify({"success": True, "current_branch": branch_name})
 
 @app.route('/api/git/tasks', methods=['GET'])
@@ -873,7 +910,9 @@ def git_create_task():
     ''', (branch, task_key, title, description, status, assigned_to, int(time.time())))
     conn.commit()
     conn.close()
-    
+    flint_system_message(
+    f"📌 New task created on '{branch}': {title}"
+    )
     return jsonify({"success": True, "task_key": task_key})
 def ask_flint(prompt):
     global flint_memory
@@ -1012,7 +1051,9 @@ def git_update_task(task_key):
     cursor.execute(query, params)
     conn.commit()
     conn.close()
-    
+    flint_system_message(
+    f"✏️ Task '{task_key}' was updated on branch '{branch}'."
+    )
     return jsonify({"success": True})
 
 @app.route('/api/git/tasks/<task_key>', methods=['DELETE'])
@@ -1026,7 +1067,9 @@ def git_delete_task(task_key):
     cursor.execute("DELETE FROM git_tasks WHERE branch_name = ? AND task_key = ?", (branch, task_key))
     conn.commit()
     conn.close()
-    
+    flint_system_message(
+    f"🗑️ Task '{task_key}' was removed from '{branch}'."
+    )
     return jsonify({"success": True})
 
 @app.route('/api/git/status', methods=['GET'])
@@ -1141,7 +1184,11 @@ def git_commit():
     
     conn.commit()
     conn.close()
-    
+    flint_system_message(
+    f"✅ {username} committed to '{branch}'\n"
+    f"Message: {message}\n"
+    f"Commit: {commit_hash[:8]}"
+    )
     return jsonify({"success": True, "commit_hash": commit_hash})
 
 @app.route('/api/git/log', methods=['GET'])
@@ -1283,6 +1330,11 @@ def git_merge():
             "conflicts": conflicts
         }
         conn.close()
+        flint_system_message(
+    f"⚠️ Merge conflict detected while merging "
+    f"'{source_branch}' into '{target_branch}'. "
+    f"Manual resolution required."
+    )
         return jsonify({
             "status": "conflict",
             "conflicts": conflicts
@@ -1383,7 +1435,11 @@ def git_resolve():
     
     conn.commit()
     conn.close()
-    
+    flint_system_message(
+    f"🛠️ Merge conflicts between "
+    f"'{source_branch}' and '{target_branch}' "
+    f"were resolved."
+    )
     session.pop('active_merge', None)
     return jsonify({"success": True, "commit_hash": commit_hash})
 
@@ -1577,4 +1633,4 @@ def test_smtp():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=6969, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)
