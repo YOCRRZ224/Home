@@ -7,17 +7,37 @@ import datetime
 import hashlib
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import requests
-
+import threading
+from flask_sock import Sock
 app = Flask(__name__, template_folder='.', static_folder='static', static_url_path='/static')
 app.secret_key = 'why-r-u-watching-my-secret'
 DB_PATH = 'database.db'
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 MODEL = "llama-3.1-8b-instant"
 flint_memory = []
+
+sock = Sock(app)
+connected_clients = {}
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+def save_avatar_from_base64(base64_str):
+    import base64
+    import re
+    if base64_str.startswith("data:image/"):
+        match = re.match(r'^data:image/(\w+);base64,(.+)$', base64_str)
+        if match:
+            ext = match.group(1)
+            img_data = base64.b64decode(match.group(2))
+            filename = f"custom_{uuid.uuid4().hex}.{ext}"
+            filepath = os.path.join("static", "avatars", filename)
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            with open(filepath, "wb") as f:
+                f.write(img_data)
+            return f"/static/avatars/{filename}"
+    return base64_str
 
 def init_db():
     conn = get_db()
@@ -93,7 +113,17 @@ def init_db():
         )
     ''')
     
-    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS meetings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            scheduled_at INTEGER NOT NULL,
+            created_by INTEGER NOT NULL,
+            reminder_sent INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'scheduled',
+            created_at INTEGER NOT NULL
+        )
+    """)
     cursor.execute("SELECT id FROM git_branches WHERE name = 'main'")
     if not cursor.fetchone():
         
@@ -210,6 +240,35 @@ COUNTRY_TIMEZONES = {
 }
 
 
+def broadcast_live_event(event_type, data=None):
+    payload = json.dumps({"type": event_type, "data": data})
+    disconnected = []
+    for ws in list(connected_clients.keys()):
+        try:
+            ws.send(payload)
+        except Exception:
+            disconnected.append(ws)
+    for ws in disconnected:
+        connected_clients.pop(ws, None)
+
+def broadcast_chat_message(message_id):
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT c.id, c.message, c.created_at, u.username, u.avatar, u.country
+            FROM chat_messages c
+            JOIN users u ON c.user_id = u.id
+            WHERE c.id = ?
+        ''', (message_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            msg_data = dict(row)
+            broadcast_live_event("chat_message", msg_data)
+    except Exception as e:
+        print("Error broadcasting message:", e)
+
 def flint_system_message(text):
     try:
         conn = get_db()
@@ -235,13 +294,198 @@ def flint_system_message(text):
             text,
             int(time.time())
         ))
-
+        msg_id = cursor.lastrowid
         conn.commit()
         conn.close()
 
+        broadcast_chat_message(msg_id)
+
     except Exception as e:
         print("FLINT system message error:", e)
+def create_meeting(title, scheduled_at, created_by):
+    conn = get_db()
+    cursor = conn.cursor()
 
+    cursor.execute("""
+        INSERT INTO meetings
+        (title, scheduled_at, created_by, created_at)
+        VALUES (?, ?, ?, ?)
+    """, (
+        title,
+        scheduled_at,
+        created_by,
+        int(time.time())
+    ))
+
+    conn.commit()
+    conn.close()
+def cancel_next_meeting():
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id,title
+        FROM meetings
+        WHERE scheduled_at > ?
+        ORDER BY scheduled_at ASC
+        LIMIT 1
+    """, (
+        int(time.time()),
+    ))
+
+    meeting = cursor.fetchone()
+
+    if not meeting:
+        conn.close()
+        return None
+
+    cursor.execute(
+        "DELETE FROM meetings WHERE id=?",
+        (meeting["id"],)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return meeting["title"]
+def send_meeting_email(subject, body):
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT server,port,sender_email,password
+        FROM smtp_config
+        LIMIT 1
+    """)
+
+    smtp = cursor.fetchone()
+
+    cursor.execute("""
+        SELECT email
+        FROM users
+        WHERE is_confirmed=1
+    """)
+
+    users = cursor.fetchall()
+
+    conn.close()
+
+    if not smtp:
+        return
+
+    if not smtp["sender_email"]:
+        return
+
+    import smtplib
+    from email.mime.text import MIMEText
+
+    try:
+
+        server = smtplib.SMTP(
+            smtp["server"],
+            int(smtp["port"])
+        )
+
+        server.starttls()
+
+        server.login(
+            smtp["sender_email"],
+            smtp["password"]
+        )
+
+        for user in users:
+
+            msg = MIMEText(body)
+
+            msg["Subject"] = subject
+            msg["From"] = smtp["sender_email"]
+            msg["To"] = user["email"]
+
+            server.sendmail(
+                smtp["sender_email"],
+                user["email"],
+                msg.as_string()
+            )
+
+        server.quit()
+
+    except Exception as e:
+        print("Meeting Email Error:", e)
+def check_meetings():
+
+    now = int(time.time())
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT *
+        FROM meetings
+        WHERE reminder_sent=0
+        AND status='scheduled'
+    """)
+
+    meetings = cursor.fetchall()
+
+    for meeting in meetings:
+
+        meeting_time = meeting["scheduled_at"]
+
+        reminder_time = meeting_time - (30 * 60)
+
+        if now >= reminder_time:
+
+            dt = datetime.datetime.utcfromtimestamp(
+                meeting_time
+            )
+
+            body = f"""
+Upcoming Team Meeting
+
+Title:
+{meeting['title']}
+
+Time:
+{dt.strftime('%Y-%m-%d %H:%M UTC')}
+
+Please join the GitSync dashboard.
+"""
+
+            send_meeting_email(
+                "Upcoming Team Meeting",
+                body
+            )
+
+            cursor.execute("""
+                UPDATE meetings
+                SET reminder_sent=1
+                WHERE id=?
+            """, (
+                meeting["id"],
+            ))
+
+            flint_system_message(
+                f"📨 Meeting reminder sent for "
+                f"{meeting['title']}"
+            )
+
+    conn.commit()
+    conn.close()
+def meeting_worker():
+
+    while True:
+
+        try:
+            check_meetings()
+
+        except Exception as e:
+            print(
+                "Meeting Worker:",
+                e
+            )
+
+        time.sleep(60)
 def find_common_ancestor(db, branch_a, branch_b):
     cursor = db.cursor()
     
@@ -341,7 +585,9 @@ def register():
     password = data.get('password')
     country = data.get('country')
     avatar = data.get('avatar')
-    
+    if avatar and avatar.startswith("data:image/"):
+        avatar = save_avatar_from_base64(avatar)
+        
     if not all([username, email, password, country, avatar]):
         return jsonify({"error": "All fields are required"}), 400
         
@@ -351,7 +597,7 @@ def register():
     
     cursor.execute("SELECT COUNT(id) FROM users")
     user_count = cursor.fetchone()[0]
-    if user_count >= 6:
+    if user_count >= 7:
         conn.close()
         return jsonify({"error": "Team is full! Maximum of 6 members allowed."}), 400
         
@@ -686,10 +932,10 @@ def get_users():
     users = [dict(row) for row in cursor.fetchall()]
     conn.close()
     
-   
+    active_user_ids = set(connected_clients.values())
     now = int(time.time())
     for u in users:
-        u['is_online'] = (now - u['last_seen']) < 15
+        u['is_online'] = u['id'] in active_user_ids or (now - u['last_seen']) < 15
         
     return jsonify({"users": users})
 
@@ -725,6 +971,97 @@ def chat_get():
     messages = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return jsonify({"messages": messages})
+def process_and_broadcast_message(user_id, message):
+    message = message.strip()
+    if not message:
+        return
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Save user message
+    cursor.execute("""
+        INSERT INTO chat_messages
+        (user_id, message, created_at)
+        VALUES (?, ?, ?)
+    """, (
+        user_id,
+        message,
+        int(time.time())
+    ))
+    user_msg_id = cursor.lastrowid
+
+    # ------------------------
+    # FLINT COMMANDS
+    # ------------------------
+    flint_msg_id = None
+    if message.lower().startswith("@flint"):
+        prompt = message[6:].strip()
+        flint_reply = None
+
+        # ----------------------------------
+        # Schedule Meeting
+        # ----------------------------------
+        if prompt.lower().startswith("schedule meeting"):
+            try:
+                date_text = prompt.replace("schedule meeting", "").strip()
+                meeting_dt = datetime.datetime.strptime(date_text, "%Y-%m-%d %H:%M UTC")
+                epoch = int(meeting_dt.timestamp())
+                cursor.execute("""
+                    INSERT INTO meetings (title, scheduled_at, created_by, status)
+                    VALUES (?, ?, ?, ?)
+                """, ("Team Meeting", epoch, user_id, "scheduled"))
+                flint_reply = f"📅 Meeting scheduled for {meeting_dt.strftime('%Y-%m-%d %H:%M UTC')}"
+            except Exception:
+                flint_reply = "⚠️ Invalid format.\nUse:\n@flint schedule meeting 2026-06-15 22:00 UTC"
+
+        # ----------------------------------
+        # Cancel Meeting
+        # ----------------------------------
+        elif prompt.lower() == "meeting cancel":
+            cursor.execute("""
+                UPDATE meetings
+                SET status='cancelled'
+                WHERE status='scheduled'
+            """)
+            if cursor.rowcount > 0:
+                flint_reply = "❌ Active meeting cancelled."
+            else:
+                flint_reply = "⚠️ No active meeting found."
+
+        # ----------------------------------
+        # Normal Flint AI
+        # ----------------------------------
+        else:
+            flint_reply = ask_flint(prompt)
+
+        # Save Flint message
+        cursor.execute(
+            "SELECT id FROM users WHERE username=?",
+            ("FLINT",)
+        )
+        flint_user = cursor.fetchone()
+        if flint_user and flint_reply:
+            cursor.execute("""
+                INSERT INTO chat_messages
+                (user_id, message, created_at)
+                VALUES (?, ?, ?)
+            """, (
+                flint_user["id"],
+                flint_reply,
+                int(time.time())
+            ))
+            flint_msg_id = cursor.lastrowid
+
+    conn.commit()
+    conn.close()
+
+    # Broadcast
+    if user_msg_id:
+        broadcast_chat_message(user_msg_id)
+    if flint_msg_id:
+        broadcast_chat_message(flint_msg_id)
+
 @app.route('/api/chat', methods=['POST'])
 def chat_post():
     if 'user_id' not in session:
@@ -736,49 +1073,124 @@ def chat_post():
     if not message or not message.strip():
         return jsonify({"error": "Message required"}), 400
 
-    message = message.strip()
+    process_and_broadcast_message(session['user_id'], message)
+    return jsonify({"success": True})
+
+@sock.route('/ws/live')
+def live_ws(ws):
+    if 'user_id' not in session:
+        ws.close(1008)  # Policy Violation
+        return
+        
+    user_id = session['user_id']
+    connected_clients[ws] = user_id
+    broadcast_live_event("presence_update")
+    
+    try:
+        while True:
+            data = ws.receive()
+            if data is None:
+                break
+            try:
+                msg_data = json.loads(data)
+                message = msg_data.get('message')
+                if message:
+                    process_and_broadcast_message(user_id, message)
+            except Exception as e:
+                print("Error parsing ws message:", e)
+    except Exception as e:
+        print("WebSocket connection error:", e)
+    finally:
+        connected_clients.pop(ws, None)
+        broadcast_live_event("presence_update")
+@app.route('/api/meetings')
+def get_meetings():
+
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
 
     conn = get_db()
     cursor = conn.cursor()
 
-    # Save user's message
-    cursor.execute('''
-        INSERT INTO chat_messages (user_id, message, created_at)
-        VALUES (?, ?, ?)
-    ''', (
-        session['user_id'],
-        message,
-        int(time.time())
-    ))
+    cursor.execute("""
+        SELECT *
+        FROM meetings
+        WHERE status='scheduled'
+        ORDER BY scheduled_at ASC
+    """)
 
-    # FLINT mention handler
-    if message.lower().startswith("@flint"):
-        prompt = message[6:].strip()
+    meetings = [dict(row) for row in cursor.fetchall()]
 
-        if prompt:
-            flint_reply = ask_flint(prompt)
-
-            cursor.execute(
-                "SELECT id FROM users WHERE username = ?",
-                ("FLINT",)
-            )
-
-            flint_user = cursor.fetchone()
-
-            if flint_user:
-                cursor.execute('''
-                    INSERT INTO chat_messages
-                    (user_id, message, created_at)
-                    VALUES (?, ?, ?)
-                ''', (
-                    flint_user["id"],
-                    flint_reply,
-                    int(time.time())
-                ))
-
-    conn.commit()
     conn.close()
 
+    return jsonify({
+        "meetings": meetings
+    })
+
+@app.route('/api/meetings', methods=['POST'])
+def schedule_meeting():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+        
+    data = request.json or {}
+    title = data.get('title')
+    scheduled_at_str = data.get('scheduled_at')
+    
+    if not title or not scheduled_at_str:
+        return jsonify({"error": "Title and schedule date/time are required"}), 400
+        
+    try:
+        if isinstance(scheduled_at_str, (int, float)):
+            epoch = int(scheduled_at_str)
+        else:
+            meeting_dt = datetime.datetime.strptime(scheduled_at_str, "%Y-%m-%d %H:%M UTC")
+            epoch = int(meeting_dt.timestamp())
+    except Exception as e:
+        return jsonify({"error": "Invalid date/time format. Use YYYY-MM-DD HH:MM UTC"}), 400
+        
+    if epoch <= int(time.time()):
+        return jsonify({"error": "Meeting must be scheduled in the future"}), 400
+        
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO meetings (title, scheduled_at, created_by, status, created_at)
+        VALUES (?, ?, ?, 'scheduled', ?)
+    """, (title, epoch, session['user_id'], int(time.time())))
+    meeting_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    flint_system_message(f"📅 A new meeting was scheduled: '{title}' at {scheduled_at_str if isinstance(scheduled_at_str, str) else datetime.datetime.utcfromtimestamp(epoch).strftime('%Y-%m-%d %H:%M UTC')}.")
+    
+    broadcast_live_event("meeting_update")
+    return jsonify({"success": True, "meeting_id": meeting_id})
+
+@app.route('/api/meetings/<int:meeting_id>', methods=['DELETE'])
+def cancel_meeting_route(meeting_id):
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+        
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT created_by, title FROM meetings WHERE id = ?", (meeting_id,))
+    meeting = cursor.fetchone()
+    
+    if not meeting:
+        conn.close()
+        return jsonify({"error": "Meeting not found"}), 404
+        
+    if meeting['created_by'] != session['user_id']:
+        conn.close()
+        return jsonify({"error": "Only the creator of this meeting can cancel it"}), 403
+        
+    cursor.execute("UPDATE meetings SET status = 'cancelled' WHERE id = ?", (meeting_id,))
+    conn.commit()
+    conn.close()
+    
+    flint_system_message(f"❌ Meeting '{meeting['title']}' was cancelled by its creator.")
+    
+    broadcast_live_event("meeting_update")
     return jsonify({"success": True})
 
 # --- Git / Kanban Endpoints ---
@@ -840,6 +1252,7 @@ def git_create_branch():
    
     session['current_branch'] = name
     
+    broadcast_live_event("git_update")
     return jsonify({"success": True, "branch": name})
 
 @app.route('/api/git/checkout', methods=['POST'])
@@ -913,6 +1326,7 @@ def git_create_task():
     flint_system_message(
     f"📌 New task created on '{branch}': {title}"
     )
+    broadcast_live_event("git_update")
     return jsonify({"success": True, "task_key": task_key})
 def ask_flint(prompt):
     global flint_memory
@@ -1054,6 +1468,7 @@ def git_update_task(task_key):
     flint_system_message(
     f"✏️ Task '{task_key}' was updated on branch '{branch}'."
     )
+    broadcast_live_event("git_update")
     return jsonify({"success": True})
 
 @app.route('/api/git/tasks/<task_key>', methods=['DELETE'])
@@ -1070,6 +1485,7 @@ def git_delete_task(task_key):
     flint_system_message(
     f"🗑️ Task '{task_key}' was removed from '{branch}'."
     )
+    broadcast_live_event("git_update")
     return jsonify({"success": True})
 
 @app.route('/api/git/status', methods=['GET'])
@@ -1189,6 +1605,7 @@ def git_commit():
     f"Message: {message}\n"
     f"Commit: {commit_hash[:8]}"
     )
+    broadcast_live_event("git_update")
     return jsonify({"success": True, "commit_hash": commit_hash})
 
 @app.route('/api/git/log', methods=['GET'])
@@ -1365,6 +1782,7 @@ def git_merge():
     conn.commit()
     conn.close()
     
+    broadcast_live_event("git_update")
     return jsonify({
         "status": "success",
         "commit_hash": merge_hash
@@ -1441,6 +1859,7 @@ def git_resolve():
     f"were resolved."
     )
     session.pop('active_merge', None)
+    broadcast_live_event("git_update")
     return jsonify({"success": True, "commit_hash": commit_hash})
 
 @app.route('/api/git/discard', methods=['POST'])
@@ -1481,6 +1900,7 @@ def git_discard():
         
     conn.commit()
     conn.close()
+    broadcast_live_event("git_update")
     return jsonify({"success": True})
 
 # --- Settings & Profile Routes ---
@@ -1546,6 +1966,8 @@ def update_settings():
         updates.append("timezone = ?")
         params.append(tz)
     if avatar:
+        if avatar.startswith("data:image/"):
+            avatar = save_avatar_from_base64(avatar)
         updates.append("avatar = ?")
         params.append(avatar)
     if password:
@@ -1596,6 +2018,7 @@ def update_settings():
     conn.commit()
     conn.close()
     
+    broadcast_live_event("presence_update")
     return jsonify({"success": True})
 
 @app.route('/api/settings/test_smtp', methods=['POST'])
@@ -1681,5 +2104,15 @@ def git_metrics():
     })
 
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+if __name__ == "__main__":
+
+    threading.Thread(
+        target=meeting_worker,
+        daemon=True
+    ).start()
+
+    app.run(
+        host="0.0.0.0",
+        port=5000,
+        debug=False
+    )
