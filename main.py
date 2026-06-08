@@ -172,7 +172,7 @@ def init_db():
             "FLINT",
             "flint@gitsync.local",
             "flint-ai",
-            "USA",
+            "India",
             "UTC",
             "/static/avatars/flint.png",
             1,
@@ -1630,6 +1630,55 @@ def test_smtp():
         return jsonify({"success": True, "message": f"SMTP test successful! Email sent to {sender_email}."})
     except Exception as ex:
         return jsonify({"error": str(ex)}), 400
+
+@app.route('/api/git/metrics', methods=['GET'])
+def git_metrics():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+        
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # 1. Total Commits & Author Leaderboard
+    cursor.execute("SELECT author, COUNT(*) as commit_count FROM git_commits GROUP BY author ORDER BY commit_count DESC")
+    authors_data = [dict(row) for row in cursor.fetchall()]
+    total_commits = sum(a['commit_count'] for a in authors_data)
+    top_contributor = authors_data[0]['author'] if authors_data else "None"
+    
+    # 2. Branch Count
+    cursor.execute("SELECT COUNT(*) FROM git_branches")
+    total_branches = cursor.fetchone()[0]
+    
+    # 3. Tasks Workload Breakdown
+    cursor.execute("SELECT status, COUNT(*) as count FROM git_tasks GROUP BY status")
+    tasks_data = {row['status']: row['count'] for row in cursor.fetchall()}
+    total_tasks = sum(tasks_data.values())
+    
+    # 4. Commit Heatmap Data (Grouped by Date)
+    cursor.execute('''
+        SELECT date(committed_at, 'unixepoch') as commit_date, COUNT(*) as count
+        FROM git_commits
+        GROUP BY commit_date
+        ORDER BY commit_date ASC
+    ''')
+    heatmap_data = [dict(row) for row in cursor.fetchall()]
+    
+    # 5. Branch Activity Matrix
+    cursor.execute("SELECT branch_name, COUNT(*) as count FROM git_commits GROUP BY branch_name ORDER BY count DESC")
+    branch_activity = [dict(row) for row in cursor.fetchall()]
+    
+    conn.close()
+    
+    return jsonify({
+        "total_commits": total_commits,
+        "top_contributor": top_contributor,
+        "total_branches": total_branches,
+        "tasks_breakdown": tasks_data,
+        "total_tasks": total_tasks,
+        "authors_data": authors_data,
+        "heatmap_data": heatmap_data,
+        "branch_activity": branch_activity
+    })
 
 
 if __name__ == '__main__':

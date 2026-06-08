@@ -1523,6 +1523,99 @@
     height: auto;
     display: block;
 }
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+/* --- Button Loading States --- */
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+.spinner-rotate {
+    animation: auth-spin 1s linear infinite;
+    display: inline-block;
+}
+
+@keyframes auth-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+/* --- METRICS TAB CSS --- */
+.github-heatmap-container {
+    display: grid;
+    grid-template-rows: repeat(7, 14px);
+    grid-auto-flow: column;
+    gap: 5px;
+    overflow-x: auto;
+    padding-bottom: 12px;
+}
+.github-heatmap-container::-webkit-scrollbar { height: 6px; display: none; }
+.github-heatmap-container:hover::-webkit-scrollbar { display: block; }
+
+.heatmap-box {
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    background-color: rgba(210, 141, 130, 0.12); /* Base lvl 0 */
+    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: crosshair;
+    position: relative;
+}
+.heatmap-box:hover {
+    transform: scale(1.3);
+    z-index: 10;
+    box-shadow: 0 0 10px var(--primary-glow);
+}
+.heatmap-box.lvl-1 { background-color: rgba(210, 141, 130, 0.4); }
+.heatmap-box.lvl-2 { background-color: rgba(210, 141, 130, 0.75); }
+.heatmap-box.lvl-3 { background-color: var(--accent-rose); }
+.heatmap-box.lvl-4 { background-color: var(--accent-coral); box-shadow: 0 0 8px var(--danger-glow); }
+
+/* Custom Tooltip for Heatmap */
+.heatmap-box::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 120%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text-primary);
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 10px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+    z-index: 20;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.heatmap-box:hover::after {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-2px);
+}
+
+.metric-bar-container {
+    width: 100%;
+    height: 6px;
+    background: rgba(210, 141, 130, 0.15);
+    border-radius: 10px;
+    margin-top: 8px;
+    overflow: hidden;
+}
+.metric-bar-fill {
+    height: 100%;
+    background: var(--primary-accent);
+    border-radius: 10px;
+    width: 0%; /* JS will animate this */
+    transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
     </style>
 </head>
 <body>
@@ -1648,6 +1741,10 @@
             <a id="nav-chat" class="menu-item" onclick="switchTab('chat')">
                 <i class="fa-solid fa-comment-dots"></i> Live Chat
             </a>
+            <a id="nav-metrics" class="menu-item" onclick="switchTab('metrics')">
+              <i class="fa-solid fa-chart-line"></i> Metrics
+            </a>
+
             <a id="nav-settings" class="menu-item" onclick="switchTab('settings')">
                 <i class="fa-solid fa-sliders"></i> Configuration
             </a>
@@ -1733,6 +1830,59 @@
                 </div>
             </div>
         </section>
+<section id="tab-metrics" class="tab-panel">
+    <div class="top-bar-title" style="margin-bottom: 24px;">
+        <h2 style="font-size: 20px;"><i class="fa-solid fa-satellite-dish" style="color: var(--accent-coral);"></i> Telemetry & Metrics</h2>
+        <p>Deep-dive diagnostics into repository network activity, workloads, and commit history</p>
+    </div>
+
+    <div class="dashboard-grid" id="metrics-top-cards">
+        <div class="glass-panel stat-card">
+            <div class="stat-content"><h3>Total Commits</h3><h2 id="met-commits">0</h2></div>
+            <div class="stat-icon"><i class="fa-solid fa-code-commit"></i></div>
+        </div>
+        <div class="glass-panel stat-card">
+            <div class="stat-content"><h3>Network Branches</h3><h2 id="met-branches">0</h2></div>
+            <div class="stat-icon"><i class="fa-solid fa-code-branch"></i></div>
+        </div>
+        <div class="glass-panel stat-card">
+            <div class="stat-content"><h3>Total Tasks</h3><h2 id="met-tasks">0</h2></div>
+            <div class="stat-icon"><i class="fa-solid fa-list-check"></i></div>
+        </div>
+        <div class="glass-panel stat-card">
+            <div class="stat-content"><h3>Top Contributor</h3><h2 id="met-top-dev" style="font-size: 18px;">-</h2></div>
+            <div class="stat-icon"><i class="fa-solid fa-medal"></i></div>
+        </div>
+    </div>
+
+    <div class="settings-grid" style="grid-template-columns: 1fr; margin-bottom: 24px; max-width: 100%;">
+        <div class="glass-panel settings-card" style="padding: 24px;">
+            <h3 style="margin-bottom: 20px;"><i class="fa-regular fa-calendar-days" style="color: var(--accent-rose);"></i> Repository Contribution Matrix (Last 100 Days)</h3>
+            <div class="github-heatmap-container" id="metrics-heatmap">
+                </div>
+            <div style="display: flex; justify-content: flex-end; gap: 6px; align-items: center; font-size: 11px; color: var(--text-secondary); margin-top: 12px; font-weight: 600;">
+                <span>Less</span>
+                <div class="heatmap-box lvl-0" style="cursor: default;"></div>
+                <div class="heatmap-box lvl-1" style="cursor: default;"></div>
+                <div class="heatmap-box lvl-2" style="cursor: default;"></div>
+                <div class="heatmap-box lvl-3" style="cursor: default;"></div>
+                <div class="heatmap-box lvl-4" style="cursor: default;"></div>
+                <span>More</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard-columns">
+        <div class="glass-panel dash-panel">
+            <h3><i class="fa-solid fa-code-branch" style="color: var(--accent-coral);"></i> Branch Traffic Load</h3>
+            <div class="dash-panel-scrollable" id="metrics-branches-list"></div>
+        </div>
+        <div class="glass-panel dash-panel">
+            <h3><i class="fa-solid fa-users-viewfinder" style="color: var(--accent-rose);"></i> Contributor Audit</h3>
+            <div class="dash-panel-scrollable" id="metrics-authors-list"></div>
+        </div>
+    </div>
+</section>
 
         <!-- --- WORK / KANBAN BOARD & GIT TAB --- -->
         <section id="tab-work" class="tab-panel">
@@ -2148,7 +2298,7 @@
 
         // Toggle registration tabs (Login vs Register)
         function toggleAuthTab(tab) {
-            document.querySelectorAll('.auth-toggle-btn').forEach(btn => btn.classList.remove('remove'));
+            document.querySelectorAll('.auth-toggle-btn').forEach(btn => btn.classList.remove('active'));
             document.querySelectorAll('.auth-toggle-btn').forEach(btn => btn.classList.remove('active'));
             if (tab === 'login') {
                 document.getElementById('toggle-login').classList.add('active');
@@ -2253,20 +2403,23 @@
         }
 
         function refreshTabData() {
-            if (currentTab === 'dashboard') {
-                loadDashboardStats();
-                loadGitLog();
-            } else if (currentTab === 'work') {
-                loadTasks();
-                loadBranches();
-                loadGitStatus();
-                loadGitLog();
-            } else if (currentTab === 'chat') {
-                loadChatMessages();
-            } else if (currentTab === 'settings') {
-                loadSettingsData();
-            }
-        }
+    if (currentTab === 'dashboard') {
+        loadDashboardStats();
+        loadGitLog();
+    } else if (currentTab === 'work') {
+        loadTasks();
+        loadBranches();
+        loadGitStatus();
+        loadGitLog();
+    } else if (currentTab === 'chat') {
+        loadChatMessages();
+    } else if (currentTab === 'settings') {
+        loadSettingsData();
+    } else if (currentTab === 'metrics') { // <-- ADD THIS BLOCK
+        loadMetricsData();
+    }
+}
+
 
         // Ticking international clocks
         function updateLocalClocks() {
@@ -2409,7 +2562,7 @@
                 container.appendChild(card);
             });
 
-            // Max team count constraint (5 members)
+            // Max team count constraint (6 members)
             const emptySlotsCount = 6 - registeredUsers.length;
             for (let i = 0; i < emptySlotsCount; i++) {
                 const emptyCard = document.createElement('div');
@@ -2426,28 +2579,102 @@
         }
 
 
-        // Login submit actions
-        function handleLogin(event) {
-            event.preventDefault();
-            const username = document.getElementById('login-username').value;
-            const password = document.getElementById('login-password').value;
-            
-            fetch('/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    showToast('Authenticated successfully', 'success');
-                    checkLoginStatus();
-                } else {
-                    showToast(data.error || 'Invalid credentials', 'error');
-                }
-            })
-            .catch(err => showToast('Connection failed', 'error'));
+// Login submit actions
+function handleLogin(event) {
+    event.preventDefault();
+    const username = document.getElementById('login-username').value;
+    const password = document.getElementById('login-password').value;
+    
+    // UX Upgrade: Locate, lock, and animate submit button
+    const form = event.target;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalBtnHtml = submitBtn.innerHTML;
+    
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = `<i class="fa-solid fa-spinner spinner-rotate"></i> Authenticating...`;
+    
+    fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Authenticated successfully', 'success');
+            checkLoginStatus();
+        } else {
+            showToast(data.error || 'Invalid credentials', 'error');
+            // Restore button usability on credential failure
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalBtnHtml;
         }
+    })
+    .catch(err => {
+        showToast('Connection failed', 'error');
+        // Restore button usability on infrastructure errors
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalBtnHtml;
+    });
+}
+
+// Register submit actions
+function handleRegister(event) {
+    event.preventDefault();
+    const username = document.getElementById('reg-username').value;
+    const email = document.getElementById('reg-email').value;
+    const password = document.getElementById('reg-password').value;
+    const country = document.getElementById('reg-country').value;
+    const avatar = customAvatarBase64 || selectedAvatar;
+    
+    // UX Upgrade: Locate, lock, and animate submit button
+    const form = event.target;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalBtnHtml = submitBtn.innerHTML;
+    
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = `<i class="fa-solid fa-spinner spinner-rotate"></i> Creating Account...`;
+    
+    fetch('/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, email, password, country, avatar })
+    })
+    .then(res => res.json())
+    .then(data => {
+        // Always unlock button once response returns
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalBtnHtml;
+
+        if (data.success) {
+            showToast(data.message, 'success');
+            document.getElementById('reg-username').value = '';
+            document.getElementById('reg-email').value = '';
+            document.getElementById('reg-password').value = '';
+            document.getElementById('reg-country').value = '';
+            customAvatarBase64 = null;
+            
+            if (data.confirm_url) {
+                const devContainer = document.getElementById('dev-confirm-container');
+                devContainer.style.display = 'block';
+                devContainer.className = 'dev-info-box';
+                devContainer.innerHTML = `
+                    <strong>Local Dev Activation Link:</strong><br>
+                    Click this link to activate account directly:<br>
+                    <a href="${data.confirm_url}" target="_blank">${data.confirm_url}</a>
+                `;
+            }
+        } else {
+            showToast(data.error || 'Registration failed', 'error');
+        }
+    })
+    .catch(err => {
+        showToast('Registration failed', 'error');
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalBtnHtml;
+    });
+}
+
                 function updateProfileSummary() {
             if (!currentUser) return;
             document.getElementById('my-avatar').src = currentUser.avatar;
@@ -2459,46 +2686,6 @@
             document.getElementById('my-country').innerText = `${flag} ${currentUser.country}`;
         }
 
-        // Register submit actions
-        function handleRegister(event) {
-            event.preventDefault();
-            const username = document.getElementById('reg-username').value;
-            const email = document.getElementById('reg-email').value;
-            const password = document.getElementById('reg-password').value;
-            const country = document.getElementById('reg-country').value;
-            const avatar = customAvatarBase64 || selectedAvatar;
-            
-            fetch('/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, email, password, country, avatar })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    showToast(data.message, 'success');
-                    document.getElementById('reg-username').value = '';
-                    document.getElementById('reg-email').value = '';
-                    document.getElementById('reg-password').value = '';
-                    document.getElementById('reg-country').value = '';
-                    customAvatarBase64 = null;
-                    
-                    if (data.confirm_url) {
-                        const devContainer = document.getElementById('dev-confirm-container');
-                        devContainer.style.display = 'block';
-                        devContainer.className = 'dev-info-box';
-                        devContainer.innerHTML = `
-                            <strong>Local Dev Activation Link:</strong><br>
-                            Click this link to activate account directly:<br>
-                            <a href="${data.confirm_url}" target="_blank">${data.confirm_url}</a>
-                        `;
-                    }
-                } else {
-                    showToast(data.error || 'Registration failed', 'error');
-                }
-            })
-            .catch(err => showToast('Registration failed', 'error'));
-        }
 
         function handleLogout() {
             fetch('/logout', { method: 'POST' })
@@ -3330,6 +3517,103 @@
             })
             .catch(err => showToast("Failed to test server connection", "error"));
         }
+      
+     
+// --- METRICS DATA ENGINE ---
+function loadMetricsData() {
+    fetch('/api/git/metrics')
+        .then(res => res.json())
+        .then(data => {
+            // Populate Top Cards
+            document.getElementById('met-commits').innerText = data.total_commits;
+            document.getElementById('met-branches').innerText = data.total_branches;
+            document.getElementById('met-tasks').innerText = data.total_tasks;
+            document.getElementById('met-top-dev').innerText = data.top_contributor;
+
+            // 1. Render GitHub Contribution Heatmap
+            const heatmap = document.getElementById('metrics-heatmap');
+            heatmap.innerHTML = '';
+            
+            const daysToShow = 105; // 15 weeks * 7 days
+            const today = new Date();
+            const dataMap = {};
+            data.heatmap_data.forEach(d => dataMap[d.commit_date] = d.count);
+            
+            // Find highest commit day to normalize the colors dynamically
+            const maxCommits = Math.max(...data.heatmap_data.map(d => d.count), 1); 
+
+            for (let i = daysToShow - 1; i >= 0; i--) {
+                const d = new Date(today);
+                d.setDate(d.getDate() - i);
+                const dateStr = d.toISOString().split('T')[0];
+                const count = dataMap[dateStr] || 0;
+
+                let lvl = 0;
+                if (count > 0) {
+                    const ratio = count / maxCommits;
+                    if (ratio >= 0.75) lvl = 4;
+                    else if (ratio >= 0.5) lvl = 3;
+                    else if (ratio >= 0.25) lvl = 2;
+                    else lvl = 1;
+                }
+
+                const displayDate = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                const block = document.createElement('div');
+                block.className = `heatmap-box lvl-${lvl}`;
+                block.setAttribute('data-tooltip', `${count} commits on ${displayDate}`);
+                heatmap.appendChild(block);
+            }
+
+            // 2. Render Branch Traffic
+            const branchList = document.getElementById('metrics-branches-list');
+            branchList.innerHTML = '';
+            if(data.branch_activity.length === 0) branchList.innerHTML = '<div style="color: var(--text-secondary); font-size: 12px; text-align: center;">No traffic detected.</div>';
+            
+            data.branch_activity.forEach(branch => {
+                const percentage = Math.round((branch.count / data.total_commits) * 100) || 0;
+                branchList.innerHTML += `
+                    <div class="activity-item" style="flex-direction: column; gap: 4px;">
+                        <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                            <h5 style="font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-code-branch" style="color: var(--text-secondary); font-size: 11px;"></i> ${branch.branch_name}
+                            </h5>
+                            <span style="font-size: 11px; font-weight: 700; color: var(--accent-rose);">${branch.count} Commits (${percentage}%)</span>
+                        </div>
+                        <div class="metric-bar-container">
+                            <div class="metric-bar-fill" style="width: ${percentage}%;"></div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            // 3. Render Contributor Audit
+            const authorList = document.getElementById('metrics-authors-list');
+            authorList.innerHTML = '';
+            if(data.authors_data.length === 0) authorList.innerHTML = '<div style="color: var(--text-secondary); font-size: 12px; text-align: center;">No contributors yet.</div>';
+
+            data.authors_data.forEach(author => {
+                const percentage = Math.round((author.commit_count / data.total_commits) * 100) || 0;
+                authorList.innerHTML += `
+                    <div class="activity-item" style="flex-direction: column; gap: 4px;">
+                        <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                            <h5 style="font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-regular fa-user" style="color: var(--text-secondary); font-size: 11px;"></i> ${author.author}
+                            </h5>
+                            <span style="font-size: 11px; font-weight: 700; color: var(--accent-coral);">${author.commit_count} Commits</span>
+                        </div>
+                        <div class="metric-bar-container">
+                            <div class="metric-bar-fill" style="width: ${percentage}%; background: var(--danger-accent);"></div>
+                        </div>
+                    </div>
+                `;
+            });
+        })
+        .catch(err => {
+            console.error("Telemetry failed to load", err);
+            showToast("Failed to sync metrics payload", "error");
+        });
+}
+
     </script>
 </body>
 </html>
