@@ -16,12 +16,11 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 MODEL = "llama-3.1-8b-instant"
 flint_memory = []
 
-# Hardcoded SMTP Credentials (edit these to configure your SMTP settings)
 SMTP_SERVER = 'smtp.gmail.com'
 SMTP_PORT = 587
 SMTP_EMAIL os.getenv("SMTP_EMAIL")
-SMTP_PASSWORD =  os.getenv("SMTP_PASSWORD") # e.g., 'your-app-password'
-
+SMTP_PASSWORD =  os.getenv("SMTP_PASSWORD")
+# don't inspect my code you stalker
 
 sock = Sock(app)
 connected_clients = {}
@@ -575,7 +574,7 @@ def three_way_merge(base_snapshot, target_snapshot, source_snapshot):
                 }
                 
     return merged, conflicts
-
+# why u still inspecting fk u go away
 # --- Routes ---
 
 @app.route('/')
